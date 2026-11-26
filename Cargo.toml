@@ -1,6 +1,6 @@
 [package]
 name = "cargo-bin-health"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Inspect Rust binaries and firmware for memory, dependency, and build health"
 license = "MIT OR Apache-2.0"
@@ -9,6 +9,7 @@ repository = "https://github.com/jorgeandrecastro/cargo-bin-health"
 readme = "README.md"
 keywords = ["embedded", "elf", "firmware", "memory", "cargo"]
 categories = ["development-tools", "embedded"]
+documentation = "https://docs.rs/cargo-bin-health"
 
 [[bin]]
 name = "cargo-bin-health"

@@ -135,18 +135,20 @@ Example measurements reported by the current implementation:
 |---|---:|
 | ELF architecture | RISC-V 32-bit |
 | ELF sections detected | 14 |
-| Estimated Flash usage | 397,288 bytes |
-| Estimated RAM usage | 58,408 bytes |
+| Flash usage | Recomputed from the ELF `PT_LOAD` load-address range union |
+| RAM usage | Recomputed from writable/relocated `PT_LOAD` runtime-address range union |
 | Largest symbols | Not available (stripped ELF) |
 | `memory.x` information | Not available |
 
-**Important:** these Flash/RAM figures are preliminary estimates from the current section-based accounting implementation. They are not yet authoritative measurements of ESP32-C3 memory consumption. Some target-specific sections and linker placement rules are not fully interpreted yet.
+**Important:** v0.2 improves generic ELF accounting by using `PT_LOAD` ranges and merging overlaps. The result is still an estimate, not an authoritative ESP32-C3 memory-budget measurement. Validate it against the ESP-IDF/Rust linker map and the chip's partition/memory layout before using it as a production budget gate.
 
-The test validates the CLI workflow and ELF inspection pipeline, not the accuracy of the memory accounting.
+The test validates the CLI workflow and generic ELF accounting algorithm; it does not certify target-specific memory consumption.
 
 ## Memory accounting
 
-The current implementation uses ELF section information to estimate memory usage.
+Version 0.2 uses ELF `PT_LOAD` program headers as its primary accounting source. Flash is estimated from file-backed load ranges at `p_paddr`; runtime RAM is estimated from writable or relocated load ranges at `p_vaddr`. Overlapping and adjacent address ranges are merged before totals are calculated, preventing straightforward double-counting between overlapping load segments.
+
+When no `PT_LOAD` segments are available, the tool falls back to allocated-section ranges. Section-level values in the JSON report are explanatory contributions and are not added on top of the segment totals.
 
 It recognizes common sections such as:
 
@@ -165,7 +167,7 @@ When a simple GNU ld-style `MEMORY` declaration is found, the tool can also read
 
 This accounting is currently an estimate, not a replacement for the target linker's map file.
 
-The next development milestone is to improve ELF accounting by interpreting load and execution addresses, allocated sections, program headers, and target-specific linker layouts.
+This remains a generic ELF estimate, not a target-specific memory map. In particular, ELF `p_paddr` semantics depend on the linker/toolchain, and external RAM, ROM-mapped regions, bootloader reservations, partition tables, PSRAM, and device-specific address aliases are not inferred automatically.
 
 ## Limitations
 
@@ -189,15 +191,17 @@ The next development milestone is to improve ELF accounting by interpreting load
 - JSON output.
 - Existing artifact inspection with `--no-build` and `--binary`.
 
-### v0.2 Accurate ELF accounting
+### v0.2 Improved ELF accounting
 
 - Interpret ELF program headers (`PT_LOAD`).
 - Distinguish VMA and LMA.
-- Handle `SHT_NOBITS` correctly.
+- Exclude `SHT_NOBITS` contents from file-backed Flash usage.
 - Interpret section allocation and write/execute flags.
-- Avoid double-counting sections and loadable segments.
-- Improve handling of custom linker sections.
-- Add regression tests using real ELF fixtures.
+- Merge overlapping/adjacent load and runtime address ranges before calculating totals.
+- Use allocated-section range accounting when no `PT_LOAD` segments exist.
+- Read symbol names from their corresponding ELF string tables.
+- Report when function symbols are unavailable (for example, in stripped ELF files).
+- Add regression tests for address-range union and overflow handling.
 
 ### Future milestones
 
