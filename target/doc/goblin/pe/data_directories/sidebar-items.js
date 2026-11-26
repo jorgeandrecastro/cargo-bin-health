@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["SIZEOF_DATA_DIRECTORY"],"enum":["DataDirectoryType"],"struct":["DataDirectories","DataDirectory"]};
