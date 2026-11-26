@@ -1,12 +1,12 @@
 # cargo-bin-health
 
 [![Crates.io](https://img.shields.io/crates/v/cargo-bin-health.svg)](https://crates.io/crates/cargo-bin-health)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-APACHE)
 [![Documentation](https://docs.rs/cargo-bin-health/badge.svg)](https://docs.rs/cargo-bin-health)
 
 `cargo-bin-health` is a Cargo subcommand for inspecting compiled Rust executables and embedded firmware.
 
-It analyzes ELF binaries, estimates Flash and RAM allocation, reports function symbol sizes when available, inspects linker memory regions, and identifies potential dependency and build configuration issues.
+It analyzes ELF binaries, estimates Flash and RAM allocation, reports function symbol sizes when available, inspects linker-defined memory regions, and identifies potential dependency and build configuration issues.
 
 The project targets embedded Rust developers who need visibility into binary size, memory allocation, and build health during local development and CI.
 
@@ -14,16 +14,16 @@ The project targets embedded Rust developers who need visibility into binary siz
 
 A successful compilation does not guarantee that a firmware fits within its target's memory constraints.
 
-Binary size, runtime memory allocation, linker reservations, and dependency configuration all affect the final firmware.
+Binary size, linker reservations, memory placement, and dependency configuration all affect the final firmware.
 
 `cargo-bin-health` provides a repeatable report to help developers:
 
 - Inspect compiled ELF artifacts.
 - Estimate Flash and RAM allocation.
-- Identify the largest function symbols when debug information is available.
+- Identify the largest function symbols when symbol information is available.
 - Inspect linker-defined memory regions.
 - Detect duplicate dependency versions.
-- Integrate memory thresholds into CI workflows.
+- Enforce memory thresholds in CI workflows.
 - Export structured JSON reports.
 
 ## Installation
@@ -96,7 +96,11 @@ cargo bin-health \
     --ci
 ```
 
-The `--ci` option enables non-zero exit status when a configured threshold is exceeded.
+The `--ci` option enables a non-zero exit status when a configured threshold is exceeded.
+
+RAM threshold evaluation uses the highest utilization among the recognized RAM allocation groups. This avoids hiding a nearly exhausted memory pool behind a lower aggregate utilization.
+
+When a RAM threshold is configured but RAM usage cannot be mapped reliably, the CI check fails closed rather than reporting a misleading successful result.
 
 ### JSON output
 
@@ -123,7 +127,7 @@ JSON output is intended for automated analysis, CI pipelines, dashboards, and cu
 | `--binary PATH` | Explicitly select an ELF artifact |
 | `--top N` | Display the N largest function symbols |
 | `--max-flash-pct N` | Set a Flash usage threshold |
-| `--max-ram-pct N` | Set a RAM usage threshold |
+| `--max-ram-pct N` | Set a RAM usage threshold, evaluated against the most utilized RAM group |
 | `--ci` | Return a non-zero status when a configured threshold is exceeded |
 | `--json` | Emit machine-readable JSON |
 | `--no-color` | Disable ANSI color output |
@@ -132,7 +136,7 @@ Run `cargo bin-health --help` for the complete list of supported options.
 
 ## ESP32-C3 real-world test
 
-`cargo-bin-health` has been tested against a compiled ESP32-C3 firmware.
+`cargo-bin-health` has been tested against a compiled ESP32-C3 firmware built for the RISC-V architecture.
 
 ### Test environment
 
@@ -163,28 +167,33 @@ The current implementation successfully:
 - Located and inspected an existing RISC-V ELF executable.
 - Extracted ELF section names, addresses, and sizes.
 - Analyzed allocated ELF sections.
-- Identified section placement in ESP32-C3 memory windows.
+- Classified sections using ESP32-C3 linker address windows.
 - Located the generated release `memory.x` linker script.
-- Parsed linker memory regions and their origin, length, and end addresses.
+- Parsed linker memory regions, including origin, length, and end addresses.
+- Applied target-specific RAM grouping and Flash capacity policies.
 - Generated a structured JSON report.
 - Detected duplicate dependency versions in the resolved Cargo package graph.
 
-Example measurements from the current test:
+Example measurements from the tested ELF:
 
 | Metric | Reported value |
 |---|---:|
 | ELF architecture | RISC-V 32-bit |
 | ELF Flash allocation estimate | 477,420 bytes |
 | ELF RAM allocation estimate | 386,048 bytes |
-| ELF accounting method | `allocated_section_accounting` |
-| Generated `memory.x` | Detected |
-| Largest symbols | Not available in the tested stripped ELF |
+| Flash capacity from linker model | 4,194,272 bytes |
+| RAM capacity from linker model | 395,024 bytes |
+| Highest RAM group utilization | 99.80% |
+| ELF accounting method | `allocated_sections_with_linker_region_mapping` |
+| Generated release `memory.x` | Detected |
 
-These measurements describe the analyzed ELF artifact. They are not measurements of runtime stack high-water usage or a complete physical memory utilization report.
+The reported values describe the analyzed ELF and its linker configuration. They are not measurements of runtime stack high-water usage or a complete physical memory utilization report.
+
+Function symbol reporting depends on the symbol information available in the ELF. Stripped binaries may not provide enough information to identify the largest functions.
 
 ### Linker memory information
 
-The generated ESP32-C3 linker script contains multiple memory regions, including:
+The generated ESP32-C3 linker configuration contains several memory regions, including:
 
 - `IRAM`
 - `DRAM`
@@ -194,13 +203,22 @@ The generated ESP32-C3 linker script contains multiple memory regions, including
 - `RTC_FAST`
 - `dram2_seg`
 
-The parser exposes the discovered regions in the JSON report.
+The parser exposes the discovered regions and their properties in the JSON report.
 
-**Important:** linker memory regions must not automatically be summed into a physical capacity. Some regions may represent aliases or distinct address windows. The current RAM capacity summary must therefore not be interpreted as the total physical RAM of the ESP32-C3. In particular, `dram2_seg` requires explicit treatment in the RAM capacity model.
+For the ESP32-C3 memory model:
 
-## Memory accounting (v0.3)
+- `IRAM`, `DRAM`, and `dram2_seg` are grouped into a shared internal SRAM allocation group.
+- `RTC_FAST` is accounted for separately.
+- `ICACHE` is excluded from the RAM capacity model.
+- Flash capacity is based on the largest recognized Flash window instead of summing the IROM and DROM windows.
 
-Version 0.3 improves ELF accounting and introduces linker-aware memory inspection.
+For the tested configuration, the modeled RAM capacity is 395,024 bytes: a shared internal SRAM group of 386,832 bytes and a separate `RTC_FAST` region of 8,192 bytes.
+
+**Important:** these values represent a linker-derived accounting model. They must not be interpreted as a complete statement of the ESP32-C3's physical silicon memory capacity. Region aliases and address windows require target-specific interpretation.
+
+## Memory accounting (v0.3.0)
+
+Version 0.3.0 improves ELF accounting and introduces linker-aware memory inspection.
 
 ### ELF accounting
 
@@ -232,6 +250,20 @@ Linker-only reservation sections such as `.rwdata_dummy` and `.rotext_dummy` are
 
 The reported RAM allocation is not runtime stack usage. For example, a `.stack` section represents a reservation, not evidence that the entire stack has been used.
 
+### RAM capacity groups and aliases
+
+Some linker memory regions can represent overlapping or related views of the same physical memory pool. Summing every declared region independently can therefore produce an incorrect capacity estimate.
+
+The ESP32-C3 model groups recognized regions before evaluating RAM utilization:
+
+- `IRAM`, `DRAM`, and `dram2_seg` belong to the shared internal SRAM group.
+- `RTC_FAST` remains a separate group.
+- RAM threshold checks use the highest utilization among the recognized groups.
+
+This is also the value used by `--max-ram-pct` for CI threshold evaluation.
+
+The grouping is target-specific. It should not be assumed to apply to other microcontrollers without an appropriate memory profile.
+
 ### Linker memory parsing
 
 The linker-script reader supports common GNU ld-style `MEMORY` declarations.
@@ -246,12 +278,13 @@ Supported constructs include:
 - Parenthesized arithmetic expressions.
 - `ORIGIN(NAME)` and `LENGTH(NAME)` references.
 - Region origin, length, and end extraction.
+- Region length expressions using `len =`.
 
 Example expressions:
 
 ```ld
-ORIGIN = 0x4037C000 + 0x4000
-LENGTH = 313K - 0x4000
+IRAM : ORIGIN = 0x4037C000 + 0x4000,
+       LENGTH = 313K - 0x4000
 ```
 
 The parser searches project linker scripts and generated Cargo build output, including generated `memory.x` files under target build directories.
@@ -306,28 +339,28 @@ They should not be treated as a replacement for:
 - Improve custom linker section handling.
 - Add regression tests using ELF fixtures.
 
-### v0.3 — ESP32-C3 linker-aware analysis
+### v0.3.0 — ESP32-C3 linker-aware analysis
 
 - Parse generated esp-hal `memory.x` files.
 - Parse linker region expressions.
 - Expose memory regions in JSON.
 - Match linker scripts to the ELF build profile.
 - Classify ESP32-C3 sections using IRAM, DRAM, RTC_FAST, IROM, and DROM address windows.
+- Group recognized RAM regions using a target-specific capacity model.
 - Exclude linker-only dummy reservations from payload totals.
 - Distinguish Flash-backed data from runtime RAM allocation.
+- Add alias-aware RAM threshold evaluation for CI.
 
-### Future milestones
+### v0.4 — Target memory profiles
 
-**v0.4 — Memory model and architecture profiles**
-
-- Complete ESP32-C3 memory capacity classification, including separate DRAM windows.
-- Add explicit memory accounting policies per target.
+- Introduce a more extensible target memory profile architecture.
 - Add RP2040 and RP2350 memory profiles.
 - Add ARM Cortex-M memory profiles.
+- Expand target-specific alias and capacity policies.
 - Improve linker-script discovery and matching.
 - Expand regression tests with real embedded ELF fixtures.
 
-**Future — Binary and CI analysis**
+### Future — Binary and CI analysis
 
 - Binary size regression baselines.
 - CI comparison between builds.

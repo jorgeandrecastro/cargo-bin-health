@@ -60,8 +60,9 @@ pub struct Cli {
     #[arg(long)]
     pub max_flash_pct: Option<f64>,
 
-    /// Fail CI if RAM usage exceeds this percentage.
-    #[arg(long)]
+    /// Fail CI if any alias-aware RAM allocation group exceeds this percentage.
+    /// Fails closed when a complete RAM memory map is unavailable.
+    #[arg(long, help = "Fail CI if any alias-aware RAM allocation group exceeds this percentage (fails closed if RAM accounting is incomplete)")]
     pub max_ram_pct: Option<f64>,
 
     /// Return a non-zero status when a configured threshold is exceeded.
