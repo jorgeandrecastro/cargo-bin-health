@@ -48,7 +48,6 @@ pub fn render(report: &Report, cli: &Cli) -> Result<()> {
     println!("Artifact : {}", report.elf.path);
     println!("Flash    : {} bytes", report.elf.flash_bytes);
     println!("RAM      : {} bytes", report.elf.ram_bytes);
-    println!("Accounting: {}", report.elf.accounting_method);
     if let Some(memory) = &report.memory {
         if let Some(total) = memory.flash_bytes {
             print_capacity("FLASH", report.elf.flash_bytes, total);
@@ -56,16 +55,19 @@ pub fn render(report: &Report, cli: &Cli) -> Result<()> {
         if let Some(total) = memory.ram_bytes {
             print_capacity("RAM", report.elf.ram_bytes, total);
         }
+        if !memory.regions.is_empty() {
+            println!("\nLinker memory regions:");
+            for region in &memory.regions {
+                println!("  {:<10} origin={:#010x} length={}", region.name,
+                    region.origin.unwrap_or(0), region.length.map(|n| format!("{n} bytes ({n:#x})")).unwrap_or_else(|| "unknown".into()));
+            }
+        }
     } else {
         println!("memory.x : not found (capacity percentages unavailable)");
     }
-    println!("\\nTop symbols:");
-    if report.elf.top_symbols.is_empty() {
-        println!("  No function symbols available (ELF may be stripped).");
-    } else {
-        for symbol in &report.elf.top_symbols {
-            println!("  {:>9} B  {}", symbol.size, symbol.name);
-        }
+    println!("\nTop symbols:");
+    for symbol in &report.elf.top_symbols {
+        println!("  {:>9} B  {}", symbol.size, symbol.name);
     }
     println!("\nDiagnostics:");
     for diagnostic in &report.diagnostics {

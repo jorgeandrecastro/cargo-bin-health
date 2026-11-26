@@ -10,18 +10,12 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-pub fn analyze(context: &CargoContext, elf: &ElfReport) -> Vec<Diagnostic> {
+pub fn analyze(context: &CargoContext, _elf: &ElfReport) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for finding in dependency_summary(&context.metadata, &context.package) {
         out.push(Diagnostic {
             level: "warning".into(),
             message: finding,
-        });
-    }
-    if elf.top_symbols.is_empty() {
-        out.push(Diagnostic {
-            level: "info".into(),
-            message: "no function symbols found; the ELF may be stripped or contain no retained function symbol table".into(),
         });
     }
     if context.no_std {
