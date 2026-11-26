@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["authenticode","certificate_table","characteristic","clr","data_directories","debug","dll_characteristic","exception","export","header","import","load_config","optional_header","options","relocation","resource","section_table","subsystem","symbol","tls","utils"],"struct":["Coff","PE","TE"]};

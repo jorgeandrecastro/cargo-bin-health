@@ -1,0 +1,9 @@
+/home/drew0670/projets/cargo-bin-health/target/debug/build/cargo_metadata/060b739ddd134b6e/out/cargo_metadata-060b739ddd134b6e.d: /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/lib.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/dependency.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/diagnostic.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/errors.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/messages.rs
+
+/home/drew0670/projets/cargo-bin-health/target/debug/build/cargo_metadata/060b739ddd134b6e/out/libcargo_metadata-060b739ddd134b6e.rmeta: /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/lib.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/dependency.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/diagnostic.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/errors.rs /home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/messages.rs
+
+/home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/lib.rs:
+/home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/dependency.rs:
+/home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/diagnostic.rs:
+/home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/errors.rs:
+/home/drew0670/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cargo_metadata-0.23.1/src/messages.rs:

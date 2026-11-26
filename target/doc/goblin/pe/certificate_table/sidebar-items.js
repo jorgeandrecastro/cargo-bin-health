@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AttributeCertificateRevision","AttributeCertificateType"],"struct":["AttributeCertificate"],"type":["CertificateDirectoryTable"]};
