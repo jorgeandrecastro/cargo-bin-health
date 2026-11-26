@@ -1,34 +1,46 @@
 # cargo-bin-health
 
 [![Crates.io](https://img.shields.io/crates/v/cargo-bin-health.svg)](https://crates.io/crates/cargo-bin-health)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20or%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
-[![docs.rs](https://docs.rs/cargo-bin-health/badge.svg)](https://docs.rs/cargo-bin-health)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://docs.rs/cargo-bin-health/badge.svg)](https://docs.rs/cargo-bin-health)
 
-`cargo-bin-health` is a Cargo subcommand that inspects compiled Rust executables and firmware. It analyzes ELF sections, estimates Flash/RAM usage, reports the largest function symbols when available, and identifies selected dependency and build configuration issues.
+`cargo-bin-health` is a Cargo subcommand for inspecting compiled Rust executables and embedded firmware.
 
-The project is designed for embedded Rust developers who need visibility into binary size, memory usage, and build health.
+It analyzes ELF binaries, estimates Flash and RAM allocation, reports function symbol sizes when available, inspects linker memory regions, and identifies potential dependency and build configuration issues.
+
+The project targets embedded Rust developers who need visibility into binary size, memory allocation, and build health during local development and CI.
 
 ## Why cargo-bin-health?
 
-Embedded memory budgets are easy to exceed without noticing.
+A successful compilation does not guarantee that a firmware fits within its target's memory constraints.
 
-A successful compilation does not necessarily mean that a firmware image fits within its target's memory constraints. `cargo-bin-health` provides a repeatable local and CI-oriented report to help developers inspect compiled artifacts and identify potential issues early.
+Binary size, runtime memory allocation, linker reservations, and dependency configuration all affect the final firmware.
+
+`cargo-bin-health` provides a repeatable report to help developers:
+
+- Inspect compiled ELF artifacts.
+- Estimate Flash and RAM allocation.
+- Identify the largest function symbols when debug information is available.
+- Inspect linker-defined memory regions.
+- Detect duplicate dependency versions.
+- Integrate memory thresholds into CI workflows.
+- Export structured JSON reports.
 
 ## Installation
+
+Install from crates.io:
 
 ```sh
 cargo install cargo-bin-health
 ```
 
-Run it from a Cargo package:
+Run it as a Cargo subcommand:
 
 ```sh
 cargo bin-health --release
-cargo bin-health --target thumbv7em-none-eabihf --release --top 20
-cargo bin-health --json --no-build --binary target/thumbv7em-none-eabihf/release/firmware
 ```
 
-The executable can also be invoked directly:
+You can also invoke the executable directly:
 
 ```sh
 cargo-bin-health --help
@@ -46,33 +58,55 @@ cargo bin-health --release
 
 ```sh
 cargo bin-health \
-  --target thumbv7em-none-eabihf \
-  --release \
-  --top 20
+    --target thumbv7em-none-eabihf \
+    --release \
+    --top 20
 ```
 
 ### Inspect an existing ELF without rebuilding
 
 ```sh
 cargo bin-health \
-  --no-build \
-  --binary target/thumbv7em-none-eabihf/release/firmware \
-  --json
+    --no-build \
+    --binary target/thumbv7em-none-eabihf/release/firmware \
+    --json
 ```
 
 ### Inspect a firmware from another Cargo project
 
 ```sh
 cargo bin-health \
-  --manifest-path ../esp32c3mini/Cargo.toml \
-  --binary ../esp32c3mini/target/riscv32imc-unknown-none-elf/release/esp32c3mini \
-  --no-build \
-  --json
+    --manifest-path ../esp32c3mini/Cargo.toml \
+    --binary ../esp32c3mini/target/riscv32imc-unknown-none-elf/release/esp32c3mini \
+    --no-build \
+    --json
 ```
 
-This is useful when the artifact has already been built by another toolchain or build workflow.
+This mode is useful when the firmware has already been compiled by another toolchain or build workflow.
 
-## Options
+### CI usage
+
+Configure Flash and RAM thresholds:
+
+```sh
+cargo bin-health \
+    --release \
+    --max-flash-pct 80 \
+    --max-ram-pct 80 \
+    --ci
+```
+
+The `--ci` option enables non-zero exit status when a configured threshold is exceeded.
+
+### JSON output
+
+```sh
+cargo bin-health --release --json
+```
+
+JSON output is intended for automated analysis, CI pipelines, dashboards, and custom reporting tools.
+
+## Command-line options
 
 | Option | Description |
 |---|---|
@@ -94,98 +128,165 @@ This is useful when the artifact has already been built by another toolchain or 
 | `--json` | Emit machine-readable JSON |
 | `--no-color` | Disable ANSI color output |
 
-Run `cargo bin-health --help` for the complete list of options.
+Run `cargo bin-health --help` for the complete list of supported options.
 
 ## ESP32-C3 real-world test
 
 `cargo-bin-health` has been tested against a compiled ESP32-C3 firmware.
 
-**Test environment**
+### Test environment
 
-- Project: `esp32c3mini`
-- Architecture: RISC-V 32-bit
-- Target: `riscv32imc-unknown-none-elf`
-- Build profile: `release`
-- Artifact: ELF executable
-- Analysis mode: existing binary, without rebuilding
+| Property | Value |
+|---|---|
+| Project | `esp32c3mini` |
+| Architecture | RISC-V 32-bit |
+| Target | `riscv32imc-unknown-none-elf` |
+| Build profile | `release` |
+| Artifact | ELF executable |
+| Analysis mode | Existing binary, without rebuilding |
 
 The firmware was inspected using:
 
 ```sh
 cargo bin-health \
-  --manifest-path ~/projets/esp32c3mini/Cargo.toml \
-  --binary ~/projets/esp32c3mini/target/riscv32imc-unknown-none-elf/release/esp32c3mini \
-  --no-build \
-  --json
+    --manifest-path ~/projets/esp32c3mini/Cargo.toml \
+    --binary ~/projets/esp32c3mini/target/riscv32imc-unknown-none-elf/release/esp32c3mini \
+    --no-build \
+    --json
 ```
 
 ### Results
 
-The tool successfully:
+The current implementation successfully:
 
 - Loaded Cargo metadata from an external project.
 - Located and inspected an existing RISC-V ELF executable.
 - Extracted ELF section names, addresses, and sizes.
+- Analyzed allocated ELF sections.
+- Identified section placement in ESP32-C3 memory windows.
+- Located the generated release `memory.x` linker script.
+- Parsed linker memory regions and their origin, length, and end addresses.
 - Generated a structured JSON report.
 - Detected duplicate dependency versions in the resolved Cargo package graph.
 
-Example measurements reported by the current implementation:
+Example measurements from the current test:
 
 | Metric | Reported value |
 |---|---:|
 | ELF architecture | RISC-V 32-bit |
-| ELF sections detected | 14 |
-| Estimated Flash usage | 397,288 bytes |
-| Estimated RAM usage | 58,408 bytes |
-| Largest symbols | Not available (stripped ELF) |
-| `memory.x` information | Not available |
+| ELF Flash allocation estimate | 477,420 bytes |
+| ELF RAM allocation estimate | 386,048 bytes |
+| ELF accounting method | `allocated_section_accounting` |
+| Generated `memory.x` | Detected |
+| Largest symbols | Not available in the tested stripped ELF |
 
-**Important:** these Flash/RAM figures are preliminary estimates from the current section-based accounting implementation. They are not yet authoritative measurements of ESP32-C3 memory consumption. Some target-specific sections and linker placement rules are not fully interpreted yet.
+These measurements describe the analyzed ELF artifact. They are not measurements of runtime stack high-water usage or a complete physical memory utilization report.
 
-The test validates the CLI workflow and ELF inspection pipeline, not the accuracy of the memory accounting.
+### Linker memory information
+
+The generated ESP32-C3 linker script contains multiple memory regions, including:
+
+- `IRAM`
+- `DRAM`
+- `IROM`
+- `DROM`
+- `ICACHE`
+- `RTC_FAST`
+- `dram2_seg`
+
+The parser exposes the discovered regions in the JSON report.
+
+**Important:** linker memory regions must not automatically be summed into a physical capacity. Some regions may represent aliases or distinct address windows. The current RAM capacity summary must therefore not be interpreted as the total physical RAM of the ESP32-C3. In particular, `dram2_seg` requires explicit treatment in the RAM capacity model.
 
 ## Memory accounting (v0.3)
 
-Version 0.3 uses allocated ELF sections as the accounting source and keeps `PT_LOAD` segments as supporting metadata. It distinguishes file-backed bytes from runtime allocation, uses section VMA/LMA information, and excludes linker-only `*_dummy` reservation sections so ESP linker fixups are not counted as firmware payload.
+Version 0.3 improves ELF accounting and introduces linker-aware memory inspection.
 
-The linker-script reader now handles named `MEMORY` regions, hexadecimal addresses, `K`/`M` units, and simple arithmetic expressions such as `0x4037C000 + 0x4000` and `313K - 0x4000`. It searches the project and generated `target/<triple>/build/*/out/memory.x` files (including esp-hal generated scripts). Parsed regions and their origin/length/end are included in JSON. Aliased windows (notably ESP32-C3 IROM/DROM and IRAM/DRAM) are not blindly summed into a fictitious physical capacity; the summary capacity uses the largest declared window.
+### ELF accounting
 
-For ESP32-C3 address windows, allocated sections are classified into IRAM, DRAM, RTC_FAST, IROM, and DROM. File-backed allocated sections contribute to Flash image size; sections mapped into runtime RAM windows contribute to RAM allocation. Dummy linker sections such as `.rwdata_dummy` and `.rotext_dummy` are deliberately excluded.
+The accounting pipeline uses allocated ELF sections as its primary source and retains `PT_LOAD` program segments as supporting metadata.
 
-These figures describe linker-level allocation, not measured runtime stack high-water usage. In particular, `.stack` is a reservation, not evidence that the whole stack has been used.
+It considers:
 
-It recognizes common sections such as:
+- ELF section allocation flags.
+- Section types, including `SHT_NOBITS`.
+- Section virtual and load address information where available.
+- File-backed data versus runtime allocation.
+- Target-specific section placement.
+- Linker reservation sections that should not be counted as firmware payload.
 
-- `.text`
-- `.rodata`
-- `.data`
-- `.bss`
-- `.init`
-- `.fini`
-- vector sections
-- common uninitialized data sections
+The implementation avoids blindly adding section sizes and program segment sizes together, which would double-count parts of the same binary.
 
-Initialized `.data` can occupy both Flash and RAM: its initial contents are stored in non-volatile memory and copied into RAM during startup.
+### Flash and RAM estimates
 
-When a simple GNU ld-style `MEMORY` declaration is found, the tool can also read memory region capacities from `memory.x`.
+The tool distinguishes between:
 
-This accounting is currently an estimate, not a replacement for the target linker's map file.
+- File-backed allocated sections contributing to the Flash image estimate.
+- Runtime sections contributing to RAM allocation.
+- Initialized data whose initial contents are stored in Flash and copied to RAM during startup.
+- Uninitialized sections that occupy runtime memory without corresponding file-backed payload.
 
-The next development milestone is to improve ELF accounting by interpreting load and execution addresses, allocated sections, program headers, and target-specific linker layouts.
+For ESP32-C3, sections can be classified using linker address windows such as IRAM, DRAM, RTC_FAST, IROM, and DROM.
+
+Linker-only reservation sections such as `.rwdata_dummy` and `.rotext_dummy` are excluded from payload accounting.
+
+The reported RAM allocation is not runtime stack usage. For example, a `.stack` section represents a reservation, not evidence that the entire stack has been used.
+
+### Linker memory parsing
+
+The linker-script reader supports common GNU ld-style `MEMORY` declarations.
+
+Supported constructs include:
+
+- Named memory regions.
+- Hexadecimal addresses.
+- Decimal values.
+- `K` and `M` size suffixes.
+- Basic addition and subtraction.
+- Parenthesized arithmetic expressions.
+- `ORIGIN(NAME)` and `LENGTH(NAME)` references.
+- Region origin, length, and end extraction.
+
+Example expressions:
+
+```ld
+ORIGIN = 0x4037C000 + 0x4000
+LENGTH = 313K - 0x4000
+```
+
+The parser searches project linker scripts and generated Cargo build output, including generated `memory.x` files under target build directories.
+
+Generated scripts are selected with the ELF build profile in mind to avoid mixing debug and release linker configurations.
+
+This is a focused parser for common memory declarations, not a complete implementation of the GNU ld linker-script grammar.
+
+### Interpretation
+
+The reported values are estimates derived from ELF and linker information.
+
+They should not be treated as a replacement for:
+
+- The target linker's complete map file.
+- Hardware-specific memory documentation.
+- Runtime stack usage analysis.
+- Runtime heap instrumentation.
+- Final flashed image inspection.
 
 ## Limitations
 
 - ELF is required. PE, Mach-O, raw binary, and UF2 formats are not currently parsed.
-- Automatic artifact discovery supports conventional Cargo output paths. Custom target runners, build scripts, and renamed artifact paths may require `--binary`.
-- `memory.x` parsing handles common `FLASH`/`RAM` declarations and simple K/M units, not the complete linker-script grammar.
-- Memory accounting is not yet architecture-aware. ESP32, RP2040, RP2350, and STM32 linker layouts may require dedicated interpretation.
+- Automatic artifact discovery supports conventional Cargo output paths. Custom runners, build scripts, and renamed artifacts may require `--binary`.
+- Linker-script parsing supports common `MEMORY` declarations and simple expressions, not the complete linker-script language.
+- Memory interpretation is target-dependent. ESP32-C3 handling is more developed than generic handling for other embedded architectures.
+- Memory region aliases and separate address windows require target-specific capacity policies.
 - Stripped ELF files may not contain usable function symbols.
-- Dependency diagnostics are heuristic. A Cargo metadata graph does not prove that a dependency contributes code to the final artifact; linker garbage collection and feature unification affect the result.
-- `std` is not normally a package in Cargo's resolved package list, so `no_std` detection is advisory.
+- Dependency diagnostics are heuristic. A dependency in Cargo metadata does not prove that its code contributes to the final executable.
+- Linker garbage collection and Cargo feature unification can affect the final binary.
+- `no_std` detection is advisory. Cargo metadata alone cannot prove that every linked dependency is `no_std`.
 
 ## Roadmap
 
-### v0.1  Initial implementation
+### v0.1 — Initial implementation
 
 - Cargo subcommand.
 - Cargo metadata inspection.
@@ -195,31 +296,59 @@ The next development milestone is to improve ELF accounting by interpreting load
 - JSON output.
 - Existing artifact inspection with `--no-build` and `--binary`.
 
-### v0.2 Accurate ELF accounting
+### v0.2 — Improved ELF accounting
 
 - Interpret ELF program headers (`PT_LOAD`).
-- Distinguish VMA and LMA.
-- Handle `SHT_NOBITS` correctly.
+- Distinguish VMA and LMA information.
+- Handle `SHT_NOBITS`.
 - Interpret section allocation and write/execute flags.
 - Avoid double-counting sections and loadable segments.
-- Improve handling of custom linker sections.
-- Add regression tests using real ELF fixtures.
+- Improve custom linker section handling.
+- Add regression tests using ELF fixtures.
 
-### v0.3 ESP32-C3 linker-aware accounting
+### v0.3 — ESP32-C3 linker-aware analysis
 
 - Parse generated esp-hal `memory.x` files.
-- Parse linker region expressions and expose each memory region in JSON.
-- Classify ESP32-C3 allocated sections by IRAM/DRAM/RTC_FAST/IROM/DROM address windows.
-- Exclude `.rwdata_dummy` and `.rotext_dummy` linker reservations from payload totals.
-- Count initialized file-backed sections for Flash and runtime sections for RAM.
+- Parse linker region expressions.
+- Expose memory regions in JSON.
+- Match linker scripts to the ELF build profile.
+- Classify ESP32-C3 sections using IRAM, DRAM, RTC_FAST, IROM, and DROM address windows.
+- Exclude linker-only dummy reservations from payload totals.
+- Distinguish Flash-backed data from runtime RAM allocation.
 
 ### Future milestones
 
-- Architecture-aware memory profiles: RISC-V, ARM Cortex-M, and Xtensa.
-- Improved symbol and function-size analysis.
+**v0.4 — Memory model and architecture profiles**
+
+- Complete ESP32-C3 memory capacity classification, including separate DRAM windows.
+- Add explicit memory accounting policies per target.
+- Add RP2040 and RP2350 memory profiles.
+- Add ARM Cortex-M memory profiles.
+- Improve linker-script discovery and matching.
+- Expand regression tests with real embedded ELF fixtures.
+
+**Future — Binary and CI analysis**
+
+- Binary size regression baselines.
+- CI comparison between builds.
+- Improved function-level size analysis.
 - Better Cargo feature and dependency diagnostics.
-- Build configuration health checks.
-- CI baselines and binary size regression detection.
+- Additional build configuration health checks.
+- Machine-readable reports for external dashboards.
+
+## Contributing
+
+Contributions, bug reports, and reproducible ELF test cases are welcome.
+
+For target-specific accounting issues, include:
+
+- The target triple.
+- The ELF artifact.
+- The linker script or generated `memory.x`.
+- The build profile.
+- The relevant JSON report.
+
+These details make memory accounting issues reproducible.
 
 ## License
 
