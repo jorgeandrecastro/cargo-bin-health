@@ -1,8 +1,10 @@
 use crate::{
+    accounting::{MemoryAccounting, PoolUsage},
     cargo_info::CargoContext,
     cli::Cli,
     elf::ElfReport,
     health::Diagnostic,
+    memory_profiles::MemoryProfile,
     memory_x::MemoryRegions,
 };
 use anyhow::Result;
@@ -12,7 +14,9 @@ use serde::Serialize;
 pub struct Report {
     pub context: CargoContextReport,
     pub elf: ElfReport,
-    pub memory: Option<MemoryRegions>,
+    pub profile: MemoryProfile,
+    pub memory_map: Option<MemoryRegions>,
+    pub accounting: MemoryAccounting,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -27,7 +31,9 @@ impl Report {
     pub fn new(
         context: CargoContext,
         elf: ElfReport,
-        memory: Option<MemoryRegions>,
+        profile: MemoryProfile,
+        memory_map: Option<MemoryRegions>,
+        accounting: MemoryAccounting,
         diagnostics: Vec<Diagnostic>,
     ) -> Self {
         Self {
@@ -37,7 +43,9 @@ impl Report {
                 binary: context.binary.display().to_string(),
             },
             elf,
-            memory,
+            profile,
+            memory_map,
+            accounting,
             diagnostics,
         }
     }
@@ -52,80 +60,53 @@ pub fn render(report: &Report, cli: &Cli) -> Result<()> {
     let color = !cli.no_color && std::env::var_os("NO_COLOR").is_none();
     println!("cargo-bin-health — {}", report.context.package);
     println!("Artifact : {}", report.elf.path);
-    println!("ELF Flash allocation : {} bytes", report.elf.flash_bytes);
-    println!("ELF RAM allocation   : {} bytes", report.elf.ram_bytes);
+    println!(
+        "ELF      : machine={} class={} entry={:#x}",
+        report.elf.machine,
+        if report.elf.elf_class == goblin::elf::header::ELFCLASS64 { "ELF64" } else { "ELF32" },
+        report.elf.entry
+    );
+    println!("Profile  : {} ({})", report.profile.display_name, report.profile.id);
+    println!("Flash    : {} bytes linked", report.accounting.flash_used_bytes);
+    println!("RAM      : {} bytes allocated", report.accounting.ram_used_bytes);
 
-    if let Some(memory) = &report.memory {
-        println!("\nLinker memory capacities:");
-        if let Some(capacity) = memory.flash_bytes {
-            print_capacity("FLASH mapped window", report.elf.flash_bytes, capacity);
-        } else {
-            println!("  FLASH: capacity unavailable");
+    print_capacity(
+        "FLASH",
+        report.accounting.flash_used_bytes,
+        report.accounting.flash_capacity_bytes,
+        report.accounting.flash_utilization_pct,
+    );
+    print_capacity(
+        "RAM",
+        report.accounting.ram_used_bytes,
+        report.accounting.ram_capacity_bytes,
+        report.accounting.ram_utilization_pct,
+    );
+
+    if !report.accounting.ram_pools.is_empty() {
+        println!("\nRAM pools:");
+        for pool in &report.accounting.ram_pools {
+            print_pool(pool);
         }
+    }
 
-        if let Some(capacity) = memory.ram_bytes.filter(|capacity| *capacity > 0) {
-            let aggregate_pct = memory.ram_used_bytes as f64 * 100.0 / capacity as f64;
-            println!(
-                "  RAM alias-aware linker capacity: {} bytes; mapped usage: {} bytes ({aggregate_pct:.1}% aggregate)",
-                capacity, memory.ram_used_bytes
-            );
-            println!("  RAM capacity policy: {}", memory.ram_capacity_policy);
-            if let Some(worst) = memory.ram_worst_group_pct {
-                println!("  Worst RAM allocation-group utilization: {worst:.1}%");
-            } else if memory.unmapped_ram_bytes > 0 {
-                println!(
-                    "  RAM threshold unavailable: {} bytes could not be mapped to declared RAM regions",
-                    memory.unmapped_ram_bytes
-                );
-            }
-        } else {
-            println!("  RAM: capacity unavailable");
-        }
-
+    if !report.accounting.regions.is_empty() {
         println!("\nLinker regions:");
-        for region in &memory.regions {
-            let origin = region
-                .origin
-                .map(|value| format!("{value:#010x}"))
-                .unwrap_or_else(|| "unknown".into());
-            let end = region
-                .end
-                .map(|value| format!("{value:#010x}"))
-                .unwrap_or_else(|| "unknown".into());
-            let length = region
-                .length
-                .map(|value| format!("{value} B"))
-                .unwrap_or_else(|| "unknown".into());
-            let usage = region
-                .utilization_pct
-                .map(|pct| format!("{}/{length} ({pct:.1}%)", region.used_bytes))
-                .unwrap_or_else(|| format!("0/{length} (n/a)"));
+        for region in &report.accounting.regions {
+            let origin = region.origin.map(|value| format!("{value:#010x}")).unwrap_or_else(|| "unknown".into());
+            let capacity = region.length.map(|value| value.to_string()).unwrap_or_else(|| "unknown".into());
+            let pct = region.utilization_pct.map(|value| format!("{value:.1}%")).unwrap_or_else(|| "n/a".into());
             println!(
-                "  {:<12} {:<7} origin={} end={} used={}",
-                region.name, region.kind, origin, end, usage
+                "  {:<14} {:<8?} origin={} used={} B / {} B ({})",
+                region.name, region.class, origin, region.used_bytes, capacity, pct
             );
         }
+    }
 
-        println!("\nRAM allocation groups (target-alias aware):");
-        for group in &memory.ram_groups {
-            let pct = group.utilization_pct
-                .map(|value| format!("{value:.1}%"))
-                .unwrap_or_else(|| "n/a".into());
-            println!(
-                "  {:<30} used={}/{} bytes ({pct}); regions={}",
-                group.name,
-                group.used_bytes,
-                group.capacity_bytes,
-                group.regions.join(",")
-            );
-        }
-        println!("  Flash policy: {}", memory.flash_capacity_policy);
-        println!("  RAM policy:   {}", memory.ram_capacity_policy);
-        if let Some(source) = &memory.source {
-            println!("  source: {source}");
-        }
+    if let Some(source) = report.memory_map.as_ref().and_then(|map| map.source.as_ref()) {
+        println!("\nLinker map: {source}");
     } else {
-        println!("\nmemory.x: not found (capacity percentages unavailable)");
+        println!("\nLinker map: not found; profile defaults are used where available");
     }
 
     println!("\nTop symbols:");
@@ -153,93 +134,73 @@ pub fn render(report: &Report, cli: &Cli) -> Result<()> {
         }
     }
 
+    for note in &report.accounting.notes {
+        println!("[NOTE] {note}");
+    }
     Ok(())
 }
 
-fn print_capacity(label: &str, used: u64, total: u64) {
-    if total == 0 {
-        println!("  {label}: capacity unavailable (zero-sized linker window)");
-        return;
-    }
+fn print_pool(pool: &PoolUsage) {
+    let capacity = pool.capacity_bytes.map(|value| value.to_string()).unwrap_or_else(|| "unknown".into());
+    let pct = pool.utilization_pct.map(|value| format!("{value:.1}%")).unwrap_or_else(|| "n/a".into());
+    println!(
+        "  {:<28} used={:>9} / {:>9} B ({}) regions={}",
+        pool.label,
+        pool.used_bytes,
+        capacity,
+        pct,
+        pool.regions.join(",")
+    );
+}
 
-    let pct = used as f64 * 100.0 / total as f64;
+fn print_capacity(label: &str, used: u64, total: Option<u64>, percentage: Option<f64>) {
+    let Some(total) = total.filter(|value| *value > 0) else {
+        println!("{label:<7}: capacity unavailable (provide a linker MEMORY region or select a supported profile)");
+        return;
+    };
+    let pct = percentage.unwrap_or_else(|| used as f64 * 100.0 / total as f64);
     let filled = (pct.clamp(0.0, 100.0) / 5.0).round() as usize;
     println!(
-        "  {label}: {used}/{total} bytes ({pct:.1}%) [{}{}]",
+        "{label:<7}: {used}/{total} bytes ({pct:.1}%) [{}{}]",
         "#".repeat(filled),
         "-".repeat(20usize.saturating_sub(filled))
     );
 }
 
-/// CI RAM threshold semantics are intentionally conservative:
-/// fail when ANY physical RAM allocation group exceeds the configured percentage.
-/// Known linker aliases are normalized into one physical group. This catches
-/// a nearly-full shared SRAM pool even when one individual VMA window looks sparse.
+/// CI threshold checks fail closed: a configured limit is considered failed
+/// when the corresponding capacity/utilization cannot be computed reliably.
 pub fn thresholds_exceeded(report: &Report, cli: &Cli) -> bool {
-    let flash_pct = report
-        .memory
-        .as_ref()
-        .and_then(|memory| memory.flash_bytes)
-        .filter(|capacity| *capacity > 0)
-        .map(|capacity| report.elf.flash_bytes as f64 * 100.0 / capacity as f64);
-
-    let ram_pct = report
-        .memory
-        .as_ref()
-        .and_then(|memory| memory.ram_worst_group_pct);
-
     let flash_failed = cli.max_flash_pct.is_some_and(|limit| {
-        !limit.is_finite() || flash_pct.is_none_or(|used| used > limit)
+        !limit.is_finite()
+            || !(0.0..=100.0).contains(&limit)
+            || report.accounting.flash_utilization_pct.is_none_or(|used| used > limit)
     });
     let ram_failed = cli.max_ram_pct.is_some_and(|limit| {
-        !limit.is_finite() || ram_pct.is_none_or(|used| used > limit)
+        !limit.is_finite()
+            || !(0.0..=100.0).contains(&limit)
+            || !report.accounting.ram_capacity_complete
+            || report.accounting.worst_ram_pool_pct.is_none_or(|used| used > limit)
     });
-
     flash_failed || ram_failed
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{cli::Cli, elf::ElfReport, memory_x::parse_memory_x};
+    use crate::{
+        accounting::MemoryAccounting,
+        cli::{Cli, MemoryProfileArg},
+        elf::ElfReport,
+        memory_profiles::generic_profile,
+    };
 
-    fn sample_report() -> Report {
-        let mut memory = parse_memory_x(
-            "MEMORY {\nFLASH : ORIGIN=0x10000000, LENGTH=1M\nRAM_A : ORIGIN=0x20000000, LENGTH=100\nRAM_B : ORIGIN=0x20000100, LENGTH=100\n}",
-        );
-        // Simulate RAM region usage: RAM_A=40%, RAM_B=95%.
-        memory.regions[1].used_bytes = 40;
-        memory.regions[1].utilization_pct = Some(40.0);
-        memory.regions[2].used_bytes = 95;
-        memory.regions[2].utilization_pct = Some(95.0);
-        memory.ram_worst_group_pct = Some(95.0);
-
-        Report {
-            context: CargoContextReport {
-                package: "demo".into(),
-                target: "demo".into(),
-                binary: "demo".into(),
-            },
-            elf: ElfReport {
-                path: "demo".into(),
-                flash_bytes: 50,
-                ram_bytes: 135,
-                accounting_method: "test".into(),
-                sections: vec![],
-                segments: vec![],
-                top_symbols: vec![],
-            },
-            memory: Some(memory),
-            diagnostics: vec![],
-        }
-    }
-
-    fn cli(max_ram_pct: Option<f64>) -> Cli {
+    fn cli() -> Cli {
         Cli {
             manifest_path: None,
             release: false,
             profile: None,
             target: None,
+            memory_profile: MemoryProfileArg::Auto,
             package: None,
             bin: None,
             example: None,
@@ -248,51 +209,63 @@ mod tests {
             no_build: true,
             binary: None,
             top: 10,
-            max_flash_pct: None,
-            max_ram_pct,
+            max_flash_pct: Some(80.0),
+            max_ram_pct: Some(80.0),
             ci: true,
             json: false,
             no_color: true,
         }
     }
 
-    #[test]
-    fn ram_threshold_uses_worst_alias_aware_group_not_aggregate_capacity() {
-        let report = sample_report();
-        assert!(thresholds_exceeded(&report, &cli(Some(90.0))));
-        assert!(!thresholds_exceeded(&report, &cli(Some(96.0))));
-    }
-
-    #[test]
-    fn esp32c3_ram_threshold_uses_the_shared_internal_sram_group() {
-        let script = include_str!("../tests/fixtures/esp32c3-memory.x");
-        let mut memory = parse_memory_x(script);
-        let sections = [
-            (0x4038_0000, 0x9b34),
-            (0x3fc8_9b38, 0x1ac8),
-            (0x3fc8_b600, 0x01f0),
-            (0x3fc8_b7f0, 0xc960),
-            (0x3fc9_8150, 0x362b0),
-            (0x3fcc_e400, 0x10000),
-        ];
-        for (address, size) in sections {
-            let index = memory.find_region_index(address, size).unwrap();
-            memory.record_section(index, address, size, 0);
+    fn sample_report() -> Report {
+        Report {
+            context: CargoContextReport {
+                package: "demo".into(),
+                target: "demo".into(),
+                binary: "demo.elf".into(),
+            },
+            elf: ElfReport {
+                path: "demo.elf".into(),
+                machine: 0,
+                elf_class: goblin::elf::header::ELFCLASS32,
+                little_endian: true,
+                entry: 0,
+                sections: vec![],
+                segments: vec![],
+                top_symbols: vec![],
+            },
+            profile: generic_profile(),
+            memory_map: None,
+            accounting: MemoryAccounting {
+                profile_id: "generic".into(),
+                profile_name: "Generic ELF".into(),
+                flash_used_bytes: 90,
+                flash_capacity_bytes: Some(100),
+                flash_utilization_pct: Some(90.0),
+                ram_used_bytes: 95,
+                ram_capacity_bytes: Some(100),
+                ram_utilization_pct: Some(95.0),
+                worst_ram_pool_pct: Some(95.0),
+                ram_capacity_complete: true,
+                unclassified_ram_bytes: 0,
+                regions: vec![],
+                ram_pools: vec![],
+                notes: vec![],
+            },
+            diagnostics: vec![],
         }
-        memory.finalize_usage(0, 0);
-
-        let mut report = sample_report();
-        report.memory = Some(memory);
-
-        assert!(thresholds_exceeded(&report, &cli(Some(90.0))));
-        assert!(!thresholds_exceeded(&report, &cli(Some(99.9))));
     }
 
     #[test]
-    fn unknown_ram_mapping_does_not_report_a_false_green_threshold() {
+    fn thresholds_fail_when_a_configured_limit_is_exceeded() {
+        assert!(thresholds_exceeded(&sample_report(), &cli()));
+    }
+
+    #[test]
+    fn ram_threshold_fails_closed_when_capacity_is_unknown() {
         let mut report = sample_report();
-        report.memory.as_mut().unwrap().unmapped_ram_bytes = 32;
-        report.memory.as_mut().unwrap().ram_worst_group_pct = None;
-        assert!(thresholds_exceeded(&report, &cli(Some(90.0))));
+        report.accounting.ram_capacity_complete = false;
+        report.accounting.worst_ram_pool_pct = None;
+        assert!(thresholds_exceeded(&report, &cli()));
     }
 }

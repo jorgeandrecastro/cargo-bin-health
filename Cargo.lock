@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-bin-health"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "cargo_metadata",
